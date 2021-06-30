@@ -35,7 +35,7 @@ This repository contains course work on "Project B. E2E data processing pipeline
       1. `broker_1`
       2. `broker_2`
       3. `broker_3`
-   3. `kafka-init` - creates neccessary topics
+   3. `kafka-init` - creates necessary topics
 2. `data-reader` - reads the local dataset and sends tweets to kafka
 3. Inference group
    1. `prepare-sentiment` - downloads transformer model for multilingual sentiment analysis from Huggingface repository and converts it into onnx format
@@ -47,7 +47,7 @@ This repository contains course work on "Project B. E2E data processing pipeline
    1. `statistics-collector` - reads data from corresponding topics and streams it to filesystem
    2. `statistics` - reads files with data from `statistics-collector` and builds diagrams
 5. Monitoring group
-   1. `prometheus` - reads metrics from `triton` service and vidualizes them (e.g. gpu utilization, batches processed, etc.)
+   1. `prometheus` - reads metrics from `triton` service and visualizes them (e.g. gpu utilization, batches processed, etc.)
    2. `kowl` - dashboard for kafka
 
 ### Microservices starting order
