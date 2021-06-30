@@ -1,0 +1,216 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_SERVERS: zookeeper:12888:13888
+
+  broker_1:
+    image: confluentinc/cp-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - 19092:19092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker_1:9092,EXTERNAL://localhost:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  broker_2:
+    image: confluentinc/cp-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - 29092:29092
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker_2:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  broker_3:
+    image: confluentinc/cp-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - 39092:39092
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker_3:9092,EXTERNAL://localhost:39092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  kafka-init:
+    image: confluentinc/cp-kafka
+    depends_on:
+      broker_1:
+        condition: service_healthy
+      broker_2:
+        condition: service_healthy
+      broker_3:
+        condition: service_healthy
+    command: "bash -c '\
+      kafka-topics --create --if-not-exists --zookeeper zookeeper:2181 --partitions 1 --replication-factor 1 --topic tweets && \
+      kafka-topics --create --if-not-exists --zookeeper zookeeper:2181 --partitions 2 --replication-factor 1 --topic languages && \
+      kafka-topics --create --if-not-exists --zookeeper zookeeper:2181 --partitions 1 --replication-factor 1 --topic sentiments && \
+      kafka-topics --create --if-not-exists --zookeeper zookeeper:2181 --partitions 1 --replication-factor 1 --topic entities'"
+
+  prepare-sentiment:
+    container_name: prepare-sentiment
+    build: ./models-preparation/sentiment
+    volumes:
+        - onnx:/onnx
+    deploy:
+        resources:
+            reservations:
+                devices:
+                    - capabilities: [gpu]
+    shm_size: '2gb'
+
+  triton:
+    container_name: triton
+    image: nvcr.io/nvidia/tritonserver:21.02-py3
+    depends_on:
+      prepare-sentiment:
+        condition: service_completed_successfully
+    restart: on-failure
+    volumes:
+        - onnx:/models
+    deploy:
+        resources:
+            reservations:
+                devices:
+                    - capabilities: [gpu]
+    shm_size: '2gb'
+    command: tritonserver --model-repository=/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "localhost:8000/v2/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  data-reader:
+    build: ./services/data-reader
+    depends_on:
+      triton:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./data/1M.jsonl.gz:/data/input.gz
+    command: node index.js
+
+  language-identification:
+    container_name: language-identification
+    depends_on:
+      triton:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    build: ./services/language-identification
+    restart: on-failure
+    environment:
+      - SELECTED_LANGUAGES=en,fr,es,de,it,pt
+    volumes:
+        - ./services/language-identification/src:/app
+    command: python main.py
+
+  sentiment-analyzer:
+    build: ./services/sentiment-analyzer
+    container_name: sentiment-analyzer
+    depends_on:
+      triton:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: on-failure
+    volumes:
+        - ./services/sentiment-analyzer/src:/app
+    shm_size: '2gb'
+    command: python main.py
+
+  ner:
+    build: ./services/ner
+    container_name: ner
+    depends_on:
+      triton:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: on-failure
+    volumes:
+        - ./services/ner/src:/app
+    command: python main.py
+
+  statistics-collector:
+    build: ./services/statistics-collector
+    depends_on:
+      triton:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    volumes:
+      - statistics:/statistics
+
+  statistics:
+    build: ./services/statistics
+    ports:
+      - 8888:8888
+    restart: on-failure
+    depends_on:
+      statistics-collector:
+        condition: service_started
+    volumes:
+      - statistics:/statistics
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: on-failure
+    depends_on:
+      triton:
+        condition: service_healthy
+    container_name: prometheus
+    ports:
+      - 9090:9090
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./services/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  kowl:
+    image: quay.io/cloudhut/kowl:master
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: on-failure
+    ports:
+      - 8080:8080
+    environment:
+      KAFKA_BROKERS: broker_1:9092,broker_2:9092,broker_3:9092
+
+volumes:
+  onnx:
+  statistics:

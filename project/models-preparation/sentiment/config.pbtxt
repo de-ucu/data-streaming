@@ -1,0 +1,23 @@
+name: "sentiment"
+platform: "onnxruntime_onnx"
+input [
+ {
+    name: "input_ids"
+    data_type: TYPE_INT64
+    dims: [256]
+  } ,
+{
+    name: "attention_mask"
+    data_type: TYPE_INT64
+    dims: [256]
+  }
+]
+output {
+    name: "output_0"
+    data_type: TYPE_FP32
+    dims: [3]
+}
+max_batch_size: 200
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16, 20, 25, 30, 40, 50, 60, 80, 100 ]
+}
