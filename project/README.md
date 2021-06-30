@@ -4,7 +4,7 @@ This repository contains course work on "Project B. E2E data processing pipeline
 
 1. Clone this repository - `git clone git@github.com:de-ucu/data-streaming.git`
 2. Go in the corresponding folder `cd data-streaming`
-3. Download the dataset - `curl -o data/1M.jsonl.gz --create-dirs https://transfer.sh/1TsjzT4/1M.jsonl.gz`
+3. Download the dataset (1M tweets) - `curl -o data/1M.jsonl.gz --create-dirs https://transfer.sh/1TsjzT4/1M.jsonl.gz`
 4. To run this service you will need `docker-compose` installed - `docker-compose up --build`
 5. Wait until all components will be up and running
 6. Links:
