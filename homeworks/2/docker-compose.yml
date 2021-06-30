@@ -1,0 +1,104 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper
+    ports:
+      - 12181:12181
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 12181
+      ZOOKEEPER_SERVERS: zookeeper:12888:13888
+
+  broker_1:
+    image: confluentinc/cp-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - 19092:19092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:12181
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker_1:9092,EXTERNAL://localhost:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+
+  broker_2:
+    image: confluentinc/cp-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - 29092:29092
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:12181
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker_2:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+
+  broker_3:
+    image: confluentinc/cp-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - 39092:39092
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:12181
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker_3:9092,EXTERNAL://localhost:39092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+
+  producer:
+    build: ./src/producer
+    depends_on:
+      - consumer
+    restart: on-failure
+    volumes:
+      - ./data/10k.jsonl.gz:/data/input.gz
+    env_file:
+      - variables.env
+    command: bash -c "sleep 30; node produce.js"
+
+  consumer:
+    build: ./src/consumer
+    depends_on:
+      - broker_1
+      - broker_2
+      - broker_3
+    volumes:
+      - output:/output
+    restart: on-failure
+    env_file:
+      - variables.env
+    command: node consume.js
+
+  statistics:
+    build: ./src/statistics
+    depends_on:
+      consumer:
+        condition: service_completed_successfully
+    volumes:
+      - output:/output
+    env_file:
+      - variables.env
+    command: python statistics.py
+
+  kowl:
+    image: quay.io/cloudhut/kowl:master
+    depends_on:
+      - broker_1
+      - broker_2
+      - broker_3
+    restart: on-failure
+    ports:
+      - 8080:8080
+    env_file:
+      - variables.env
+    environment:
+      KAFKA_BROKERS: broker_1:9092,broker_2:9092,broker_3:9092
+
+
+volumes:
+  output:
